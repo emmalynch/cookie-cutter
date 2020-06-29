@@ -17,7 +17,7 @@ import {
 import { BlobServiceClient, ContainerCreateResponse } from "@azure/storage-blob";
 import { Span, SpanContext, Tags, Tracer } from "opentracing";
 import { IBlobStorageConfiguration } from "..";
-import { Stream } from "stream";
+import { streamToString } from "./helper";
 
 export enum BlobOpenTracingTagKeys {
     ContainerName = "blob.container_name",
@@ -145,7 +145,7 @@ export class BlobClient implements IRequireInitialization {
             blobClient
                 .download()
                 .then((result) => {
-                    if (result && result._response && result._response.status) {
+                    if (result?._response?.status) {
                         span.setTag(Tags.HTTP_STATUS_CODE, result._response.status);
                     }
 
@@ -155,7 +155,7 @@ export class BlobClient implements IRequireInitialization {
                     );
                     span.finish();
 
-                    resolve(this.streamToString(result.readableStreamBody));
+                    resolve(streamToString(result.readableStreamBody));
                 })
                 .catch((error) => {
                     span.setTag(Tags.HTTP_STATUS_CODE, error.statusCode);
@@ -177,42 +177,35 @@ export class BlobClient implements IRequireInitialization {
 
         const containers = this.blobService.listContainers();
 
-        return new Promise<boolean>((resolve, reject) => {
-            containers
-                .next()
-                .then((container) => {
-                    if (container.value.name === blobId) {
+        return new Promise<boolean>(async (resolve, reject) => {
+            try {
+                let containerItem = await containers.next();
+                while (!containerItem.done) {
+                    if (containerItem?.value.name === blobId) {
                         this.metrics.increment(
                             BlobMetrics.Exists,
                             this.generateMetricTags(BlobMetricResults.Success, 200)
                         );
                         return resolve(true);
                     }
-                })
-                .catch((error) => {
-                    span.setTag(Tags.HTTP_STATUS_CODE, error.statusCode);
+                    containerItem = await containers.next();
+                }
+                this.metrics.increment(
+                    BlobMetrics.Exists,
+                    this.generateMetricTags(BlobMetricResults.Error, 404)
+                );
+                return resolve(false);
+            } catch (error) {
+                span.setTag(Tags.HTTP_STATUS_CODE, error.statusCode);
 
-                    this.metrics.increment(
-                        BlobMetrics.Exists,
-                        this.generateMetricTags(BlobMetricResults.Error, error.statusCode)
-                    );
-                    failSpan(span, error);
-                    span.finish();
-                    reject(error);
-                });
-        });
-    }
-
-    private async streamToString(readableStream: Stream): Promise<string> {
-        return new Promise<string>((resolve, reject) => {
-            const chunks = [];
-            readableStream.on("data", (data) => {
-                chunks.push(data.toString());
-            });
-            readableStream.on("end", () => {
-                resolve(chunks.join(""));
-            });
-            readableStream.on("error", reject);
+                this.metrics.increment(
+                    BlobMetrics.Exists,
+                    this.generateMetricTags(BlobMetricResults.Error, error.statusCode)
+                );
+                failSpan(span, error);
+                span.finish();
+                return reject(error);
+            }
         });
     }
 }
