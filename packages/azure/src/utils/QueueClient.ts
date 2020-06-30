@@ -139,7 +139,7 @@ export class QueueClient implements IRequireInitialization {
             };
         }
         this.queueService = new QueueServiceClient(
-            config.url, // TODO is url the correct format here?
+            config.url,
             sharedKeyCredential,
             storagePipelineOptions
         );
@@ -215,7 +215,7 @@ export class QueueClient implements IRequireInitialization {
         options?: IQueueCreateMessageOptions
     ): Promise<IQueueMessage> {
         const span = this.tracer.startSpan(this.spanOperationName, { childOf: spanContext });
-        const queueName = (options && options.queueName) || this.defaultQueue;
+        const queueName = options?.queueName || this.defaultQueue;
         const kind = spanContext ? Tags.SPAN_KIND_RPC_CLIENT : undefined;
         this.spanLogAndSetTags(span, kind, this.write.name, queueName, { queue: queueName });
         this.tracer.inject(span, FORMAT_HTTP_HEADERS, headers);
@@ -290,7 +290,7 @@ export class QueueClient implements IRequireInitialization {
         try {
             return attemptWrite();
         } catch (err) {
-            const isQueueNotFoundError = err && err.code && err.code === QUEUE_NOT_FOUND_ERROR_CODE;
+            const isQueueNotFoundError = err?.code && err.code === QUEUE_NOT_FOUND_ERROR_CODE;
             if (isQueueNotFoundError && this.config.createQueueIfNotExists) {
                 return this.createQueueIfNotExists(spanContext, queueName).then(attemptWrite);
             } else {

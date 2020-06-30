@@ -5,229 +5,259 @@ This source code is licensed under the Apache 2.0 license found in the
 LICENSE file in the root directory of this source tree.
 */
 
-// import { config, EventSourcedMetadata, JsonMessageEncoder } from "@walmartlabs/cookie-cutter-core";
-// import { QueueServiceClient, StorageRetryPolicyType } from "@azure/storage-queue";
+import { config, JsonMessageEncoder, EventSourcedMetadata } from "@walmartlabs/cookie-cutter-core";
+import { QueueServiceClient, StorageRetryPolicyType } from "@azure/storage-queue";
 // import { MockTracer, Span, SpanContext } from "opentracing";
-// import { IQueueConfiguration, IQueueSourceConfiguration, QueueMetadata } from "../../streaming";
-// import { QueueConfiguration, QueueSourceConfiguration } from "../../streaming/internal";
-// import { EnvelopeQueueMessagePreprocessor, QueueClient } from "../../utils";
+import { IQueueConfiguration } from "../../streaming";
+import { QueueConfiguration } from "../../streaming/internal";
+import { EnvelopeQueueMessagePreprocessor, QueueClient } from "../../utils";
+import { SpanContext, MockTracer, Span } from "opentracing";
 
-jest.mock("@azure/storage-queue", () => {
-    return {
-        getQueueClient: jest.fn(),
-        LinearRetryPolicyFilter: jest.fn(),
-    };
-});
-
-// const MockCreateQueueService: jest.Mock = QueueServiceClient as any;
-// const MockLinearRetryPolicyFilter: jest.Mock = StorageRetryPolicyType as any;
+const MockQueueServiceClient: jest.Mock = QueueServiceClient as any;
+const MockLinearRetryPolicyFilter: jest.Mock = StorageRetryPolicyType as any;
 
 // const withFilter = function(this: QueueServiceClient) {
 //     return this;
 // };
 
+jest.mock("@azure/storage-queue", () => {
+    return {
+        QueueServiceClient: jest.fn().mockImplementation(() => jest.fn()),
+        StorageRetryPolicyType: jest.fn().mockImplementation(() => jest.fn()),
+        StorageSharedKeyCredential: jest.fn().mockImplementation(() => {
+            return {
+                accountName: "123",
+                accountKey: "123",
+                create: jest.fn(),
+                computeHMACSHA256: jest.fn(),
+            };
+        }),
+    };
+});
+
 describe("QueueClient", () => {
-    // const rawConfiguration = {
-    //     queueName: "queue123",
-    //     storageAccount: "myAccount",
-    //     storageAccessKey: "myKey",
-    //     encoder: new JsonMessageEncoder(),
-    //     retryInterval: "5s",
-    //     retryCount: 3,
-    //     preprocessor: new EnvelopeQueueMessagePreprocessor(),
-    // } as any;
-    // const parseConfig = (raw: any): IQueueConfiguration => config.parse(QueueConfiguration, raw);
-    // const configuration = parseConfig(rawConfiguration);
-    // const context = new SpanContext();
-    // const span: Span = new MockTracer().startSpan("unit-test", { childOf: context });
-    // const payload = "hello world to queues";
-    // const headers = {
-    //     [EventSourcedMetadata.EventType]: "foo",
-    // };
-    // const messageQueueResult = {
-    //     messageId: "message123",
-    //     popReceipt: "pop123",
-    //     messageText: JSON.stringify({ headers, payload }),
-    // };
+    const rawConfiguration = {
+        queueName: "queue123",
+        storageAccount: "myAccount",
+        storageAccessKey: "myKey",
+        encoder: new JsonMessageEncoder(),
+        retryInterval: "5s",
+        retryCount: 3,
+        preprocessor: new EnvelopeQueueMessagePreprocessor(),
+    } as any;
+    const parseConfig = (raw: any): IQueueConfiguration => config.parse(QueueConfiguration, raw);
+    const configuration = parseConfig(rawConfiguration);
+    const context = new SpanContext();
+    const span: Span = new MockTracer().startSpan("unit-test", { childOf: context });
+    const payload = "hello world to queues";
+    const headers = {
+        [EventSourcedMetadata.EventType]: "foo",
+    };
+    const messageQueueResult = {
+        messageId: "message123",
+        popReceipt: "pop123",
+        messageText: JSON.stringify({ headers, payload }),
+    };
 
-    // beforeEach(() => {
-    //     MockCreateQueueService.mockReset();
-    //     MockLinearRetryPolicyFilter.mockReset();
-    // });
+    beforeEach(() => {
+        // MockQueueServiceClient.mockReset();
+        MockLinearRetryPolicyFilter.mockReset();
 
-    // describe("constructor", () => {
-    //     it("should use retry filter by default", async () => {
-    //         const withFilter = jest.fn();
-    //         const filter = { t: "me" };
-    //         MockLinearRetryPolicyFilter.mockImplementation(() => filter);
-    //         MockCreateQueueService.mockImplementation(() => ({
-    //             withFilter,
-    //         }));
-    //         const client = new QueueClient(configuration);
-    //         expect(client).toBeDefined();
-    //         expect(withFilter).toBeCalledWith(filter);
-    //     });
+        MockQueueServiceClient.mockImplementation(() => {
+            return {
+                getQueueClient: jest.fn(() => {
+                    return {
+                        sendMessage: jest.fn(() => {
+                            return {
+                                messageId: "123",
+                                popReceipt: "123",
+                                insertedOn: Date.now(),
+                                expiresOn: Date.now(),
+                                _response: {
+                                    status: 200,
+                                },
+                            };
+                        }),
+                    };
+                }),
+            };
+        });
 
-    //     it("should not use retry if retry count is 0", async () => {
-    //         const withFilter = jest.fn();
-    //         MockCreateQueueService.mockImplementation(() => ({
-    //             withFilter,
-    //         }));
-    //         const client = new QueueClient({ ...configuration, retryCount: 0 });
-    //         expect(client).toBeDefined();
-    //         expect(withFilter).not.toBeCalled();
-    //     });
+        MockLinearRetryPolicyFilter.mockImplementation(() => {
+            return 1;
+        });
+    });
 
-    //     it("should pass in defaults to retry constructor", async () => {
-    //         const withFilter = jest.fn();
-    //         const filter = { t: "me" };
-    //         MockLinearRetryPolicyFilter.mockImplementation(() => filter);
-    //         MockCreateQueueService.mockImplementation(() => ({
-    //             withFilter,
-    //         }));
-    //         const client = new QueueClient(configuration);
-    //         expect(client).toBeDefined();
-    //         expect(MockLinearRetryPolicyFilter).toHaveBeenCalledWith(3, 5000);
-    //     });
+    // TODO think of tests to replace these ones that test the filtering
+    describe("constructor", () => {
+        // it("should use retry filter by default", async () => {
+        //     const withFilter = jest.fn();
+        //     const filter = { t: "me" };
+        //     MockLinearRetryPolicyFilter.mockImplementation(() => filter);
+        //     MockQueueServiceClient.mockImplementation(() => ({
+        //         withFilter,
+        //     }));
+        //     const client = new QueueClient(configuration);
+        //     expect(client).toBeDefined();
+        //     expect(withFilter).toBeCalledWith(filter);
+        // });
+        // it("should not use retry if retry count is 0", async () => {
+        //     const withFilter = jest.fn();
+        //     MockQueueServiceClient.mockImplementation(() => ({
+        //         withFilter,
+        //     }));
+        //     const client = new QueueClient({ ...configuration, retryCount: 0 });
+        //     expect(client).toBeDefined();
+        //     expect(withFilter).not.toBeCalled();
+        // });
+        // it("should pass in defaults to retry constructor", async () => {
+        //     const withFilter = jest.fn();
+        //     const filter = { t: "me" };
+        //     MockLinearRetryPolicyFilter.mockImplementation(() => filter);
+        //     MockQueueServiceClient.mockImplementation(() => ({
+        //         withFilter,
+        //     }));
+        //     const client = new QueueClient(configuration);
+        //     expect(client).toBeDefined();
+        //     expect(MockLinearRetryPolicyFilter).toHaveBeenCalledWith(3, 5000);
+        // });
+        // it("should pass config specified values", async () => {
+        //     const withFilter = jest.fn();
+        //     const filter = { t: "me" };
+        //     MockLinearRetryPolicyFilter.mockImplementation(() => filter);
+        //     MockQueueServiceClient.mockImplementation(() => ({
+        //         withFilter,
+        //     }));
+        //     const client = new QueueClient({ ...configuration, retryCount: 1, retryInterval: 1 });
+        //     expect(client).toBeDefined();
+        //     expect(MockLinearRetryPolicyFilter).toHaveBeenCalledWith(1, 1);
+        // });
+    });
 
-    //     it("should pass config specified values", async () => {
-    //         const withFilter = jest.fn();
-    //         const filter = { t: "me" };
-    //         MockLinearRetryPolicyFilter.mockImplementation(() => filter);
-    //         MockCreateQueueService.mockImplementation(() => ({
-    //             withFilter,
-    //         }));
-    //         const client = new QueueClient({ ...configuration, retryCount: 1, retryInterval: 1 });
-    //         expect(client).toBeDefined();
-    //         expect(MockLinearRetryPolicyFilter).toHaveBeenCalledWith(1, 1);
-    //     });
-    // });
-
-    // describe("write", () => {
-    //     const response = { statusCode: 200 };
-    //     const writeResultsIn = async (
-    //         error?: any,
-    //         result?: any,
-    //         res = response,
-    //         config = configuration
-    //     ) => {
-    //         const createMessage = jest.fn();
-    //         const createQueueIfNotExists = jest.fn();
-    //         createMessage.mockImplementationOnce((_q, _t, _o, cb) => {
-    //             cb(error, result, res);
-    //         });
-    //         createQueueIfNotExists.mockImplementation((_q, cb) => {
-    //             cb(undefined, { created: true, exists: true });
-    //         });
-    //         MockCreateQueueService.mockImplementation(() => ({
-    //             createMessage,
-    //             withFilter,
-    //             createQueueIfNotExists,
-    //         }));
-    //         const client = new QueueClient(config);
-    //         return { createMessage, client, createQueueIfNotExists };
-    //     };
-    //     it("should write message with defaults", async () => {
-    //         const { client, createMessage } = await writeResultsIn(undefined, messageQueueResult);
-    //         const result = await client.write(span.context(), payload, headers);
-    //         expect(result).toBeDefined();
-    //         expect(createMessage).toBeCalledWith(
-    //             configuration.queueName,
-    //             JSON.stringify({ payload, headers }),
-    //             undefined,
-    //             expect.anything()
-    //         );
-    //     });
-    //     it("should write message with options", async () => {
-    //         const { client, createMessage } = await writeResultsIn(undefined, messageQueueResult);
-    //         const options = {
-    //             queueName: "different",
-    //             visibilityTimeout: 1233,
-    //             messageTimeToLive: 124,
-    //         };
-    //         await client.write(span.context(), payload, headers, options);
-    //         expect(createMessage).toBeCalledWith(
-    //             options.queueName,
-    //             JSON.stringify({ payload, headers }),
-    //             options,
-    //             expect.anything()
-    //         );
-    //     });
-    //     it("should pass client failure up", async () => {
-    //         const error = new Error("something bad happend");
-    //         const { client } = await writeResultsIn(error);
-    //         await expect(client.write(span.context(), payload, headers)).rejects.toEqual(error);
-    //     });
-    //     it("should error if text is to big", async () => {
-    //         const bigText = Buffer.alloc(65 * 1024);
-    //         const { client, createMessage } = await writeResultsIn();
-    //         const result = client.write(span.context(), bigText, headers);
-    //         expect(createMessage).not.toBeCalled();
-    //         await expect(result).rejects.toEqual(
-    //             new Error("Queue Message too big, must be less then 64kb. is: 173.423828125")
-    //         );
-    //     });
-    //     it("should error get back 413 from azure", async () => {
-    //         const bigText = Buffer.alloc(1024);
-    //         const e: Error & { statusCode?: number } = new Error(
-    //             "The request body is too large and exceeds the maximum permissible limit."
-    //         );
-    //         const { client, createMessage } = await writeResultsIn(e, undefined, {
-    //             statusCode: 413,
-    //         });
-    //         const result = client.write(span.context(), bigText, headers);
-    //         expect(createMessage).toBeCalled();
-    //         await expect(result).rejects.toMatchObject({ code: 413 });
-    //     });
-    //     it("should retry on 404s if configured to", async () => {
-    //         const serviceResponse = { statusCode: 404 };
-    //         const { client, createMessage, createQueueIfNotExists } = await writeResultsIn(
-    //             new Error(),
-    //             undefined,
-    //             serviceResponse,
-    //             parseConfig({ ...rawConfiguration, createQueueIfNotExists: true })
-    //         );
-    //         createMessage.mockImplementationOnce((_q, _t, _o, cb) => {
-    //             cb(undefined, {}, { statusCode: 200 });
-    //         });
-    //         const result = await client.write(span.context(), payload, headers);
-    //         expect(createMessage).toBeCalledTimes(2);
-    //         expect(createQueueIfNotExists).toBeCalled();
-    //         expect(result).toBeDefined();
-    //     });
-    //     it("should not retry on 404s if not configured to", async () => {
-    //         const serviceResponse = { statusCode: 404 };
-    //         const { client, createMessage, createQueueIfNotExists } = await writeResultsIn(
-    //             new Error(),
-    //             undefined,
-    //             serviceResponse,
-    //             parseConfig({ ...rawConfiguration, createQueueIfNotExists: false })
-    //         );
-    //         createMessage.mockImplementationOnce((_q, _t, _o, cb) => {
-    //             cb(undefined, {}, { statusCode: 200 });
-    //         });
-    //         const result = client.write(span.context(), payload, headers);
-    //         await expect(result).rejects.toMatchObject({ code: 404 });
-    //         expect(createQueueIfNotExists).not.toBeCalled();
-    //         expect(createMessage).toBeCalledTimes(1);
-    //     });
-    //     it("should not retry on other errors (even if configured to)", async () => {
-    //         const serviceResponse = { statusCode: 401 };
-    //         const { client, createMessage, createQueueIfNotExists } = await writeResultsIn(
-    //             new Error(),
-    //             undefined,
-    //             serviceResponse,
-    //             parseConfig({ ...rawConfiguration, createQueueIfNotExists: true })
-    //         );
-    //         createMessage.mockImplementationOnce((_q, _t, _o, cb) => {
-    //             cb(undefined, {}, { statusCode: 200 });
-    //         });
-    //         const result = client.write(span.context(), payload, headers);
-    //         await expect(result).rejects.toMatchObject({ code: 401 });
-    //         expect(createQueueIfNotExists).not.toBeCalled();
-    //         expect(createMessage).toBeCalledTimes(1);
-    //     });
-    // });
+    describe("write", () => {
+        const response = { statusCode: 200 };
+        const writeResultsIn = async (
+            error?: any,
+            result?: any,
+            res = response,
+            config = configuration
+        ) => {
+            const createMessage = jest.fn();
+            const createQueueIfNotExists = jest.fn();
+            createMessage.mockImplementationOnce((_q, _t, _o, cb) => {
+                cb(error, result, res);
+            });
+            createQueueIfNotExists.mockImplementation((_q, cb) => {
+                cb(undefined, { created: true, exists: true });
+            });
+            MockQueueServiceClient.mockImplementation(() => ({
+                createMessage,
+                createQueueIfNotExists,
+            }));
+            const client = new QueueClient(config);
+            return { createMessage, client, createQueueIfNotExists };
+        };
+        it("should write message with defaults", async () => {
+            const { client, createMessage } = await writeResultsIn(undefined, messageQueueResult);
+            const result = await client.write(span.context(), payload, headers);
+            expect(result).toBeDefined();
+            expect(createMessage).toBeCalledWith(
+                configuration.queueName,
+                JSON.stringify({ payload, headers }),
+                undefined,
+                expect.anything()
+            );
+        });
+        //     it("should write message with options", async () => {
+        //         const { client, createMessage } = await writeResultsIn(undefined, messageQueueResult);
+        //         const options = {
+        //             queueName: "different",
+        //             visibilityTimeout: 1233,
+        //             messageTimeToLive: 124,
+        //         };
+        //         await client.write(span.context(), payload, headers, options);
+        //         expect(createMessage).toBeCalledWith(
+        //             options.queueName,
+        //             JSON.stringify({ payload, headers }),
+        //             options,
+        //             expect.anything()
+        //         );
+        //     });
+        //     it("should pass client failure up", async () => {
+        //         const error = new Error("something bad happend");
+        //         const { client } = await writeResultsIn(error);
+        //         await expect(client.write(span.context(), payload, headers)).rejects.toEqual(error);
+        //     });
+        //     it("should error if text is to big", async () => {
+        //         const bigText = Buffer.alloc(65 * 1024);
+        //         const { client, createMessage } = await writeResultsIn();
+        //         const result = client.write(span.context(), bigText, headers);
+        //         expect(createMessage).not.toBeCalled();
+        //         await expect(result).rejects.toEqual(
+        //             new Error("Queue Message too big, must be less then 64kb. is: 173.423828125")
+        //         );
+        //     });
+        //     it("should error get back 413 from azure", async () => {
+        //         const bigText = Buffer.alloc(1024);
+        //         const e: Error & { statusCode?: number } = new Error(
+        //             "The request body is too large and exceeds the maximum permissible limit."
+        //         );
+        //         const { client, createMessage } = await writeResultsIn(e, undefined, {
+        //             statusCode: 413,
+        //         });
+        //         const result = client.write(span.context(), bigText, headers);
+        //         expect(createMessage).toBeCalled();
+        //         await expect(result).rejects.toMatchObject({ code: 413 });
+        //     });
+        //     it("should retry on 404s if configured to", async () => {
+        //         const serviceResponse = { statusCode: 404 };
+        //         const { client, createMessage, createQueueIfNotExists } = await writeResultsIn(
+        //             new Error(),
+        //             undefined,
+        //             serviceResponse,
+        //             parseConfig({ ...rawConfiguration, createQueueIfNotExists: true })
+        //         );
+        //         createMessage.mockImplementationOnce((_q, _t, _o, cb) => {
+        //             cb(undefined, {}, { statusCode: 200 });
+        //         });
+        //         const result = await client.write(span.context(), payload, headers);
+        //         expect(createMessage).toBeCalledTimes(2);
+        //         expect(createQueueIfNotExists).toBeCalled();
+        //         expect(result).toBeDefined();
+        //     });
+        //     it("should not retry on 404s if not configured to", async () => {
+        //         const serviceResponse = { statusCode: 404 };
+        //         const { client, createMessage, createQueueIfNotExists } = await writeResultsIn(
+        //             new Error(),
+        //             undefined,
+        //             serviceResponse,
+        //             parseConfig({ ...rawConfiguration, createQueueIfNotExists: false })
+        //         );
+        //         createMessage.mockImplementationOnce((_q, _t, _o, cb) => {
+        //             cb(undefined, {}, { statusCode: 200 });
+        //         });
+        //         const result = client.write(span.context(), payload, headers);
+        //         await expect(result).rejects.toMatchObject({ code: 404 });
+        //         expect(createQueueIfNotExists).not.toBeCalled();
+        //         expect(createMessage).toBeCalledTimes(1);
+        //     });
+        //     it("should not retry on other errors (even if configured to)", async () => {
+        //         const serviceResponse = { statusCode: 401 };
+        //         const { client, createMessage, createQueueIfNotExists } = await writeResultsIn(
+        //             new Error(),
+        //             undefined,
+        //             serviceResponse,
+        //             parseConfig({ ...rawConfiguration, createQueueIfNotExists: true })
+        //         );
+        //         createMessage.mockImplementationOnce((_q, _t, _o, cb) => {
+        //             cb(undefined, {}, { statusCode: 200 });
+        //         });
+        //         const result = client.write(span.context(), payload, headers);
+        //         await expect(result).rejects.toMatchObject({ code: 401 });
+        //         expect(createQueueIfNotExists).not.toBeCalled();
+        //         expect(createMessage).toBeCalledTimes(1);
+        //     });
+    });
     // describe("read", () => {
     //     const response = { statusCode: 200 };
     //     const readResultsIn = async (error?: any, result?: any) => {

@@ -5,8 +5,15 @@ This source code is licensed under the Apache 2.0 license found in the
 LICENSE file in the root directory of this source tree.
 */
 
-const success = Promise.resolve("A DEFINED VALUE");
-const failure = Promise.reject("A DEFINED VALUE");
+import { NullTracerBuilder } from "@walmartlabs/cookie-cutter-core";
+import { Span, SpanContext } from "opentracing";
+import { IBlobStorageConfiguration } from "../..";
+import { BlobClient } from "../../utils";
+import { BlobServiceClient } from "@azure/storage-blob";
+import { streamToString } from "../../utils/helper";
+
+const MockBlobServiceClient: jest.Mock = BlobServiceClient as any;
+const MockStreamToString: jest.Mock = streamToString as any;
 
 jest.mock("@azure/storage-blob", () => {
     return {
@@ -20,15 +27,8 @@ jest.mock("../../utils/helper", () => {
     };
 });
 
-import { NullTracerBuilder } from "@walmartlabs/cookie-cutter-core";
-import { Span, SpanContext } from "opentracing";
-import { IBlobStorageConfiguration } from "../..";
-import { BlobClient } from "../../utils";
-import { BlobServiceClient } from "@azure/storage-blob";
-import { streamToString } from "../../utils/helper";
-
-const MockBlobServiceClient: jest.Mock = BlobServiceClient as any;
-const MockStreamToString: jest.Mock = streamToString as any;
+const success = Promise.resolve("A DEFINED VALUE");
+const failure = Promise.reject("A DEFINED VALUE");
 
 describe("BlobClient", () => {
     const config: IBlobStorageConfiguration = {
